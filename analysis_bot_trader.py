@@ -35,6 +35,7 @@ class TradingBot:
         self.symbol = symbol
         self.risk_percentage = risk_percentage
         self.last_sar_signal = None # None, 'buy' or 'sell'
+        self.previous_macd = None # Speichert vorherigen MACD-Wert
 
         rsi_window = 4
 
@@ -201,7 +202,7 @@ class TradingBot:
             logger.error(f"Failed to execute {order_type} order: {str(e)}")
             return None
     
-    def check_buy_signal(self, price, sar, macd, macd_signal, rsi):
+    def check_buy_signal(self, price, sar, macd_crossover, rsi):
         """
         Kaufsignal basierend auf den Indikatoren.
 
@@ -212,9 +213,9 @@ class TradingBot:
         :param rsi: RSI-Wert
         :return: True, wenn Kaufsignal
         """
-        return sar < price and macd > macd_signal and rsi <= self.rsi_buy_upper_bound and rsi >= self.rsi_buy_lower_bound
+        return sar < price and macd_crossover == 'bullish' and rsi <= self.rsi_buy_upper_bound and rsi >= self.rsi_buy_lower_bound
 
-    def checl_sell_signal(self, price, sar, macd, macd_signal, rsi):
+    def check_sell_signal(self, price, sar, macd_crossover, rsi):
         """
         Verkaufsignal basierend auf den Indikatoren.
         
@@ -225,7 +226,7 @@ class TradingBot:
         :param rsi: RSI-Wert
         :return: True, wenn Verkaufsignal
         """
-        return sar > price and macd < macd_signal and rsi >= self.rsi_sell_lower_bound and rsi <= self.rsi_sell_upper_bound
+        return sar > price and macd_crossover == 'baerish' and rsi >= self.rsi_sell_lower_bound and rsi <= self.rsi_sell_upper_bound
 
     def trading_strategy(self):
         """
@@ -241,16 +242,24 @@ class TradingBot:
 
         if macd_data is not None:
             macd, macd_signal = macd_data
+
+            if self.previous_macd is not None:
+                macd_crossover = None
+                if self.previous_macd < macd and macd_signal < macd: # Bullish Crossover
+                    macd_crossover = 'bullish'
+                elif self.previous_macd > macd and macd_signal > macd: # Bearish Crossover
+                    macd_crossover = 'bearish'
+            
             trade_amount = self.calculate_trade_amount() # Berechnet Handelsbetrag
             
             # Kaufsignal
-            if self.check_buy_signal(prices[-1], sar, macd, macd_signal, rsi):
+            if self.check_buy_signal(prices[-1], sar, macd_crossover, rsi):
                 if self.last_sar_signal != 'buy':
                     self.last_sar_signal = 'buy'
                     self.execute_order('buy', trade_amount)
             
             # Verkaufsignal
-            elif self.checl_sell_signal(prices[-1], sar, macd, macd_signal, rsi):
+            elif self.check_sell_signal(prices[-1], sar, macd_crossover, rsi):
                 if self.last_sar_signal != 'sell':
                     self.last_sar_signal = 'sell'
                     self.execute_order('sell', trade_amount)
