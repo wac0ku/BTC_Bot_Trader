@@ -8,7 +8,6 @@ import numpy as np
 import ccxt
 from scipy.fftpack import fft
 
-
 # Create a logger
 logger = logging.getLogger('trading_bot')
 logger.setLevel(logging.INFO)
@@ -104,7 +103,7 @@ class TradingBot:
             logger.error(f"Failed to fetch {indicator} data for {self.symbol}: {str(e)}")
             return None
 
-    def calculate_rsi(self, prices, period=14):
+    def calculate_rsi(self, prices, period=6):
         """
         Berechnet den Relative Strength Index (RSI) basierend auf den geschlossenen Preisen.
 
@@ -112,12 +111,16 @@ class TradingBot:
         :param period: Zeitraum für die RSI Berechnung
         :return rsi: RSI Wert
         """
-        delta = np.diff(prices)
-        gain = (delta[delta > 0]).mean()
-        loss = (-delta[delta < 0]).mean()
+        if len(prices) < period:
+            logger.error('Not enough prices available for RSI calculation.')
+            return None
+
+        delta = np.diff(prices[-period:])
+        gain = (delta[delta > 0]).mean() if np.any(delta > 0) else 0
+        loss = (-delta[delta < 0]).mean() if np.any(delta < 0) else 0
         rs = gain / loss if loss != 0 else 0
         rsi = 100 - (100 / (1 + rs))
-        logger.info(f'Calculated RSI: {rsi}')
+        logger.info(f'Calculated RSI: {rsi} for period: {period}')
         return rsi
 
     def execute_order(self, order_type, amount):
@@ -186,7 +189,6 @@ class TradingBot:
                 self.execute_order('buy', trade_amount)
             elif self.checl_sell_signal(prices[-1], sar, macd, macd_signal, rsi):
                 self.execute_order('sell', trade_amount)
-
 
 # Hauptschleife
 if __name__ == "__main__":
