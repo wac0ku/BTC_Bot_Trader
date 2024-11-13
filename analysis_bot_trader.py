@@ -150,6 +150,11 @@ class TradingBot:
                     self.buy(amount=1)  # Beispielbetrag
                     stop_loss = self.set_stop_loss(current_price, atr_value, direction="long")
 
+                elif (current_price < lower_band + 0.01) and (current_price > sar_value) and (imbalance > 0) and (rsi < 30):
+                    logger.info(f'Generated buy signal for trend following strategy')
+                    self.buy(amount=1)  # Beispielbetrag
+                    stop_loss = self.set_stop_loss(current_price, atr_value, direction="long")
+
                 elif current_price > upper_band and current_price < sar_value and imbalance < 0 and rsi > 70:
                     logger.info(f'Generated sell signal for trend following strategy')
                     self.sell(amount=1)  # Beispielbetrag
