@@ -15,10 +15,50 @@ binance = ccxt.binance({
 })
 
 # Funktion, um Marktdaten zu holen
-def fetch_data(symbol='BTC/USDT', timeframe='1m', limit=500):
+def fetch_data(symbol='BTC/USDT', timeframe='5m', limit=500):
     ohlcv = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
     close_prices = [x[4] for x in ohlcv]  # Schlusskurse
     return np.array(close_prices)
+
+# Bullish-Bearish Strategy
+# Bollinger Bands berechnen
+def calc_boll_bands(prices, window = 20, num_std_abw = 2):
+    rolling_mean = np.mean(prices[-window:])
+    rolling_std = np.std(prices[-window:])
+    upper_band = rolling_mean + (rolling_std * num_std_abw)
+    lower_band = rolling_mean - (rolling_std * num_std_abw)
+    return rolling_mean, upper_band, lower_band
+
+# Parabolic SAR berechnen
+def calc_SAR(prices, initial_af=0.02, max_af=0.2):
+    af = initial_af
+    sar = prices[0]
+    ep = prices[0]
+    long_position = True
+    parabolic_sar = []
+
+    for i in range(1, len(prices)):
+        sar += af * (ep - sar)
+        if long_position:
+            if prices[i] > ep:
+                ep = prices[i]
+                af = min(af + initial_af, max_af)
+            if prices[i] < sar:
+                long_position = False
+                sar = ep
+                af = initial_af
+        else:
+            if prices[i] < ep:
+                ep = prices[i]
+                af = min(af + initial_af, max_af)
+            if prices[i] > sar:
+                long_position = True
+                sar = ep
+                af = initial_af
+        parabolic_sar.append(sar)
+    return parabolic_sar[-1]
+
+# end Bullish-Bearish-strategy
 
 # Fourier-Analyse zur Erkennung von Zyklen und Mustern
 def fourier_analysis(prices):
@@ -35,39 +75,62 @@ def ornstein_uhlenbeck(prices, theta=0.1, mu=None, sigma=0.2):
     shock = sigma * np.random.normal()
     return prices[-1] + drift + shock
 
-# Einfache Trading-Logik basierend auf Fourier- und OU-Ergebnissen
-def trading_strategy(symbol='BTC/USDT'):
-    prices = fetch_data(symbol=symbol)
-    
-    # Fourier-Analyse durchführen
-    frequencies, magnitude = fourier_analysis(prices)
-    
-    # Plot für Frequenzkomponenten
-    plt.plot(frequencies, magnitude)
-    plt.xlabel('Frequenzen')
-    plt.ylabel('Magnitude')
-    plt.title('Fourier-Spektralanalyse')
-    plt.show()
+# Kauf Order
+def buy(symbol):
+    binance.create_market_buy_order(symbol, 0.001)
 
-    # Ornstein-Uhlenbeck-Analyse für Mean Reversion
-    ou_prediction = ornstein_uhlenbeck(prices)
-    current_price = prices[-1]
-    
-    # Trading-Entscheidungen basierend auf Mean Reversion
-    if ou_prediction > current_price:
-        print("Kauf-Signal: Preis wird möglicherweise steigen.")
-        # binance.create_market_buy_order(symbol, 0.001) # Beispiel Kauf-Order
-    elif ou_prediction < current_price:
-        print("Verkauf-Signal: Preis wird möglicherweise fallen.")
-        # binance.create_market_sell_order(symbol, 0.001) # Beispiel Verkaufs-Order
+def sell(symbol):
+    binance.create_market_sell_order(symbol, 0.001)
+
+# Funktion zur Auswahl der Strategie
+def select_strat(prices):
+    # Trend vorhanden, wenn short SMA > long SMA
+    short_sma = np.mean(prices[-50:]) # 50-Tage-SMA
+    long_sma = np.mean(prices[-200:]) # 200-Tage-SMA
+    if short_sma > long_sma:
+        return "trend-following"
     else:
-        print("Keine Aktion: Keine starken Signale.")
+        return "mean-reversion"
+
+# Einfache Trading-Logik basierend auf Fourier- und OU-Ergebnissen
+def trading_strategy(btc_usdt='BTC/USDT'):
+    prices = fetch_data(symbol=btc_usdt)
+    current_price = prices[-1]
+
+    # Strategie auswählen
+    strategy = select_strat(prices)
+    print(f"Current Strategy: {strategy}")
+
+    if strategy == "trend-following":
+        # Calculate Bollinger Bands + SAR
+        rolling_mean, upper_band, lower_band = calc_boll_bands(prices)
+        sar_val = calc_SAR(prices)
+
+        if current_price < lower_band and current_price > sar_val:
+            print(f"Kaufe 0.001 BTC zu {current_price} USDT (trend-following)")
+            buy(btc_usdt)
+        elif current_price > upper_band and current_price < sar_val:
+            print(f"Verkaufe 0.001 BTC zu {current_price} USDT (trend-following)")
+            sell(btc_usdt)
+    
+    elif strategy == "mean-reversion":
+        # Fourier-Analyse und OU-Modell
+        frequencies, magnitude = fourier_analysis(prices)
+        ou_prediction = ornstein_uhlenbeck(prices)
+
+        if ou_prediction > current_price:
+            print(f"Kaufe 0.001 BTC zu {current_price} USDT (mean-reversion)")
+            buy(btc_usdt)
+        elif ou_prediction < current_price:
+            print(f"Verkaufe 0.001 BTC zu {current_price} USDT (mean-reversion)")
+            sell(btc_usdt)
         
+
 # Hauptschleife für den Trading Bot
 def run_bot():
     while True:
         trading_strategy()
-        time.sleep(60)  # 1 Minute warten, bevor die nächste Analyse durchgeführt wird
+        time.sleep(300)  # 5 Minute warten, bevor die nächste Analyse durchgeführt wird
 
 # Trading Bot starten
 run_bot()
