@@ -26,7 +26,7 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 class TradingBot:
-    def __init__(self, api_key, api_secret, symbol='BTC/USDT', risk_percentage=0.015):
+    def __init__(self, api_key, api_secret, symbol='BTC/USDT', risk_percentage=0.05):
         self.binance = ccxt.binance({
             'apiKey': api_key,
             'secret': api_secret,
@@ -34,6 +34,15 @@ class TradingBot:
         })
         self.symbol = symbol
         self.risk_percentage = risk_percentage
+        self.last_sar_signal = None # None, 'buy' or 'sell'
+
+        rsi_window = 4
+
+        # RSI Parameter
+        self.rsi_buy_lower_bound = 30 - rsi_window 
+        self.rsi_buy_upper_bound = 70 + rsi_window
+        self.rsi_sell_lower_bound = 70 - rsi_window
+        self.rsi_sell_upper_bound = 30 + rsi_window
     
     def fetch_balance(self):
         """
@@ -152,7 +161,6 @@ class TradingBot:
         
         return sar
 
-
     def calculate_rsi(self, prices, period=6):
         """
         Berechnet den Relative Strength Index (RSI) basierend auf den geschlossenen Preisen.
@@ -204,8 +212,8 @@ class TradingBot:
         :param rsi: RSI-Wert
         :return: True, wenn Kaufsignal
         """
-        return sar < price and macd > macd_signal and rsi < 30
-    
+        return sar < price and macd > macd_signal and rsi < self.rsi_buy_upper_bound and rsi > self.rsi_buy_lower_bound
+
     def checl_sell_signal(self, price, sar, macd, macd_signal, rsi):
         """
         Verkaufsignal basierend auf den Indikatoren.
@@ -217,7 +225,7 @@ class TradingBot:
         :param rsi: RSI-Wert
         :return: True, wenn Verkaufsignal
         """
-        return sar > price and macd < macd_signal and rsi > 70
+        return sar > price and macd < macd_signal and rsi > self.rsi_sell_lower_bound and rsi < self.rsi_sell_upper_bound
 
     def trading_strategy(self):
         """
@@ -234,11 +242,18 @@ class TradingBot:
         if macd_data is not None:
             macd, macd_signal = macd_data
             trade_amount = self.calculate_trade_amount() # Berechnet Handelsbetrag
-
+            
+            # Kaufsignal
             if self.check_buy_signal(prices[-1], sar, macd, macd_signal, rsi):
-                self.execute_order('buy', trade_amount)
+                if self.last_sar_signal != 'buy':
+                    self.last_sar_signal = 'buy'
+                    self.execute_order('buy', trade_amount)
+            
+            # Verkaufsignal
             elif self.checl_sell_signal(prices[-1], sar, macd, macd_signal, rsi):
-                self.execute_order('sell', trade_amount)
+                if self.last_sar_signal != 'sell':
+                    self.last_sar_signal = 'sell'
+                    self.execute_order('sell', trade_amount)
 
 # Hauptschleife
 if __name__ == "__main__":
