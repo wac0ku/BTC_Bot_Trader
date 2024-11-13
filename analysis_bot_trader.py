@@ -212,7 +212,7 @@ class TradingBot:
         :param rsi: RSI-Wert
         :return: True, wenn Kaufsignal
         """
-        return sar < price and macd > macd_signal and rsi < self.rsi_buy_upper_bound and rsi > self.rsi_buy_lower_bound
+        return sar < price and macd > macd_signal and rsi <= self.rsi_buy_upper_bound and rsi >= self.rsi_buy_lower_bound
 
     def checl_sell_signal(self, price, sar, macd, macd_signal, rsi):
         """
@@ -225,7 +225,7 @@ class TradingBot:
         :param rsi: RSI-Wert
         :return: True, wenn Verkaufsignal
         """
-        return sar > price and macd < macd_signal and rsi > self.rsi_sell_lower_bound and rsi < self.rsi_sell_upper_bound
+        return sar > price and macd < macd_signal and rsi >= self.rsi_sell_lower_bound and rsi <= self.rsi_sell_upper_bound
 
     def trading_strategy(self):
         """
