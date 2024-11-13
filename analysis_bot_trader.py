@@ -61,7 +61,10 @@ class TradingBot:
 
     def fetch_data(self, timeframe='5m', limit=500):
         """
-        Erhält die Daten für die Trades.
+        Erhält die aktuellsten Kursdaten.
+
+        :param timeframe: Zeitraum der Daten (z.B. 5m, 15m, 1h)
+        :param limit: Anzahl der Datenpunkte
         """
         try:
             ohlcv = self.binance.fetch_ohlcv(self.symbol, timeframe=timeframe, limit=limit)
@@ -95,13 +98,60 @@ class TradingBot:
         :return: Daten für den Indikator
         """
         try:
-            params = {"indicator": indicator}
+            params = {}
+            if indicator == 'macd':
+                params = {
+                    "fast_length": 6,
+                    "slow_length": 16,
+                    "signal_length": 9
+                }
+            # fühe die Abfrage des Indikators durch
             data = self.binance.fetch_ta_indicator(self.symbol, params=params)
             logger.info(f"Fetched {indicator} data for {self.symbol}")
             return data['value'][-1]
         except Exception as e:
             logger.error(f"Failed to fetch {indicator} data for {self.symbol}: {str(e)}")
             return None
+
+    def calculate_sar(self, prices, acceleration=0.02, maximum=0.2):
+        """
+        Berechnet den Parabolic SAR basierend auf den geschlossenen Preisen.
+
+        :param prices: geschlossene Preise
+        :param acceleration: Beschleunigungsfaktor
+        :param maximum: maximaler Beschleunigungsfaktor
+        :return: Liste der SAR-Werte
+        """
+        sar = [prices[0]]  # Initialisiere den ersten SAR-Wert
+        ep = prices[0]  # Extrempreis
+        trend = 1  # 1 für Aufwärtstrend, -1 für Abwärtstrend
+
+        for i in range(1, len(prices)):
+            sar.append(sar[i - 1] + acceleration * (ep - sar[i - 1]))
+
+        if trend == 1:  # Aufwärtstrend
+            if prices[i] < sar[i]:  # Trendwechsel
+                trend = -1
+                sar[i] = ep  # Setze SAR auf den Extrempreis
+                ep = prices[i]  # Setze Extrempreis auf den aktuellen Preis
+                acceleration = 0.02  # Zurücksetzen des Beschleunigungsfaktors
+            else:
+                if prices[i] > ep:
+                    ep = prices[i]  # Aktualisiere Extrempreis
+                    acceleration = min(acceleration + 0.02, maximum)  # Erhöhe den Beschleunigungsfaktor
+        else:  # Abwärtstrend
+            if prices[i] > sar[i]:  # Trendwechsel
+                trend = 1
+                sar[i] = ep  # Setze SAR auf den Extrempreis
+                ep = prices[i]  # Setze Extrempreis auf den aktuellen Preis
+                acceleration = 0.02  # Zurücksetzen des Beschleunigungsfaktors
+            else:
+                if prices[i] < ep:
+                    ep = prices[i]  # Aktualisiere Extrempreis
+                    acceleration = min(acceleration + 0.02, maximum)  # Erhöhe den Beschleunigungsfaktor
+        
+        return sar
+
 
     def calculate_rsi(self, prices, period=6):
         """
@@ -177,7 +227,7 @@ class TradingBot:
         if not self.validate_data(prices):
             return
         
-        sar = self.fetch_indicator('sar')
+        sar = self.calculate_sar(prices)
         macd_data = self.fetch_indicator('macd')
         rsi = self.calculate_rsi(prices)
 
