@@ -45,6 +45,11 @@ class TradingBot:
             return 0
 
     def calculate_trade_amount(self):
+        """
+        Berechnet den Trade Betrag basierend auf der Risikostufe.
+
+        :return amount: Trade Betrag in USDT
+        """
         balance = self.fetch_balance()
         amount = balance * self.risk_percentage
         logger.info(f"Calculated trade amount: {amount} USDT based on balance: {balance} USDT")
@@ -89,6 +94,9 @@ class TradingBot:
         return rsi
 
     def execute_order(self, order_type, amount):
+        """
+        
+        """
         try:
             if order_type == 'buy':
                 order = self.binance.place_market_buy_order(self.symbol, amount)
