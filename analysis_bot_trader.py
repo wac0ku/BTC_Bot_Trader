@@ -33,6 +33,41 @@ class TradingBot:
             'enableRateLimit': True
         })
         self.symbol = symbol
+        self.risk_percentage = risk_percentage
+        self.last_sar_signal = None # None, 'buy' or 'sell'
+        self.previous_macd = None # Speichert vorherigen MACD-Wert
+
+        rsi_window = 5
+
+        # RSI Parameter
+        self.rsi_buy_lower_bound = 30 - rsi_window 
+        self.rsi_buy_upper_bound = 70 + rsi_window
+        self.rsi_sell_lower_bound = 70 - rsi_window
+        self.rsi_sell_upper_bound = 30 + rsi_window
+    
+    def fetch_balance(self):
+        """
+        Zeigt Trading Balance an.
+
+        :return balance: Balance in USDT
+        """
+        try:
+            balance = self.binance.fetch_balance()
+            return balance['total']['USDT']
+        except Exception as e:
+            logger.error(f"Failed to fetch balance: {str(e)}")
+            return 0
+
+    def calculate_trade_amount(self):
+        """
+        Berechnet den Trade Betrag basierend auf der Risikostufe.
+
+        :return amount: Trade Betrag in USDT
+        """
+        balance = self.fetch_balance()
+        amount = balance * self.risk_percentage
+        logger.info(f"Calculated trade amount: {amount} USDT based on balance: {balance} USDT")
+        return amount
 
     def fetch_data(self, timeframe='1h', limit=500):
         try:
