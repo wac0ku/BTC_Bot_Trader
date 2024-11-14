@@ -1,0 +1,49 @@
+INSTALLATION ANLEITUNG FÜR DEN TRADING BOT
+
+Diese Anleitung beschreibt die Schritte zur Installation und Ausführung des Trading Bots für Binance.
+
+Voraussetzungen:
+- Python 3.7 oder höher
+- Pip (Python Package Installer)
+
+Schritte zur Installation:
+
+1. **Python und Pip installieren**
+   - Stelle sicher, dass Python 3.7 oder höher auf deinem System installiert ist. Du kannst die neueste Version von Python von der offiziellen Website herunterladen: https://www.python.org/downloads/
+   - Pip wird normalerweise mit Python installiert. Überprüfe die Installation, indem du im Terminal oder in der Eingabeaufforderung den folgenden Befehl eingibst:
+     ```
+     pip --version
+     ```
+
+2. **Repository klonen oder herunterladen**
+   - Klone das Repository oder lade die Dateien manuell auf deinen Computer herunter.
+
+3. **Navigiere zum Projektverzeichnis**
+   - Öffne ein Terminal oder eine Eingabeaufforderung und navigiere zu dem Verzeichnis, in dem sich die Dateien des Trading Bots befinden. Zum Beispiel:
+     ```
+     cd /pfad/zum/projektverzeichnis
+     ```
+
+4. **Installiere die benötigten Bibliotheken**
+   - Stelle sicher, dass die `requirements.txt`-Datei im Projektverzeichnis vorhanden ist. Führe den folgenden Befehl aus, um die erforderlichen Bibliotheken zu installieren:
+     ```
+     pip install -r requirements.txt
+     ```
+
+5. **API-Schlüssel einfügen**
+   - Öffne die Datei `analysis_bot_trader.py` in einem Texteditor.
+   - Ersetze `YOUR_API_KEY` und `YOUR_API_SECRET` mit deinen tatsächlichen Binance API-Schlüsseln.
+
+6. **Bot ausführen**
+   - Führe den Trading Bot mit dem folgenden Befehl aus:
+     ```
+     python analysis_bot_trader.py
+     ```
+
+7. **Überwachung**
+   - Der Bot wird in einer Endlosschleife ausgeführt und alle 5 Minuten Handelsentscheidungen treffen. Überprüfe die Protokolle in der Datei `trading_bot.log` für weitere Informationen und Fehler.
+
+Hinweis:
+- Stelle sicher, dass du über ausreichende Kenntnisse im Trading und im Umgang mit API-Schlüsseln verfügst, bevor du den Bot verwendest. Der Handel birgt Risiken.
+
+Viel Erfolg beim Handel!
