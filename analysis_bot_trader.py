@@ -1,8 +1,12 @@
+# Autor: Leon Gajtner
+# Datum: 2024-11-13
+# Trading Bot : Trading Bot for Binance
+
 import logging
 import time
 import numpy as np
+
 import ccxt
-from scipy.fftpack import fft
 
 # Create a logger
 logger = logging.getLogger('trading_bot')
@@ -22,15 +26,56 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 class TradingBot:
-    def __init__(self, api_key, api_secret, symbol='BTC/USDT'):
+    def __init__(self, api_key, api_secret, symbol='BTC/USDT', risk_percentage=0.05):
         self.binance = ccxt.binance({
             'apiKey': api_key,
             'secret': api_secret,
             'enableRateLimit': True
         })
         self.symbol = symbol
+        self.risk_percentage = risk_percentage
+        self.last_sar_signal = None # None, 'buy' or 'sell'
+        self.previous_macd = None # Speichert vorherigen MACD-Wert
 
-    def fetch_data(self, timeframe='1h', limit=500):
+        rsi_window = 5
+
+        # RSI Parameter
+        self.rsi_buy_lower_bound = 30 - rsi_window 
+        self.rsi_buy_upper_bound = 70 + rsi_window
+        self.rsi_sell_lower_bound = 70 - rsi_window
+        self.rsi_sell_upper_bound = 30 + rsi_window
+    
+    def fetch_balance(self):
+        """
+        Zeigt Trading Balance an.
+
+        :return balance: Balance in USDT
+        """
+        try:
+            balance = self.binance.fetch_balance()
+            return balance['total']['USDT']
+        except Exception as e:
+            logger.error(f"Failed to fetch balance: {str(e)}")
+            return 0
+
+    def calculate_trade_amount(self):
+        """
+        Berechnet den Trade Betrag basierend auf der Risikostufe.
+
+        :return amount: Trade Betrag in USDT
+        """
+        balance = self.fetch_balance()
+        amount = balance * self.risk_percentage
+        logger.info(f"Calculated trade amount: {amount} USDT based on balance: {balance} USDT")
+        return amount
+
+    def fetch_data(self, timeframe='5m', limit=500):
+        """
+        Erhält die aktuellsten Kursdaten.
+
+        :param timeframe: Zeitraum der Daten (z.B. 5m, 15m, 1h)
+        :param limit: Anzahl der Datenpunkte
+        """
         try:
             ohlcv = self.binance.fetch_ohlcv(self.symbol, timeframe=timeframe, limit=limit)
             close_prices = [x[4] for x in ohlcv]
@@ -41,6 +86,12 @@ class TradingBot:
             return None
 
     def validate_data(self, prices):
+        """
+        Validiert die Daten.
+        
+        :param prices: Geschlossener Preis
+        :return: True wenn Daten gültig sind, False sonst
+        """
         if prices is None or len(prices) == 0:
             logger.error('No prices available for validation.')
             return False
@@ -49,136 +100,169 @@ class TradingBot:
             return False
         return True
 
-    def fetch_sar(self):
+    def fetch_indicator(self, indicator):
+        """
+        Erhält die Daten für die Indikatoren.
+
+        :param indicator: Indikator
+        :return: Daten für den Indikator
+        """
         try:
-            params = {"indicator": "sar"}
-            sar_data = self.binance.fetch_ta_indicator(self.symbol, params=params)
-            logger.info(f'Fetched SAR data for {self.symbol}')
-            return sar_data['value'][-1]
+            params = {}
+            if indicator == 'macd':
+                params = {
+                    "fast_length": 6,
+                    "slow_length": 16,
+                    "signal_length": 9
+                }
+            # fühe die Abfrage des Indikators durch
+            data = self.binance.fetch_ta_indicator(self.symbol, params=params)
+            logger.info(f"Fetched {indicator} data for {self.symbol}")
+            return data['value'][-1]
         except Exception as e:
-            logger.error(f'Failed to fetch SAR data for {self.symbol}: {str(e)}')
+            logger.error(f"Failed to fetch {indicator} data for {self.symbol}: {str(e)}")
             return None
 
-    def calculate_bollinger_bands(self, prices, window=20, num_std_dev=2):
-        try:
-            rolling_mean = np.mean(prices[-window:])
-            rolling_std = np.std(prices[-window:])
-            upper_band = rolling_mean + (rolling_std * num_std_dev)
-            lower_band = rolling_mean - (rolling_std * num_std_dev)
-            logger.info(f'Calculated Bollinger Bands for prices with window {window} and num_std_dev {num_std_dev}')
-            return rolling_mean, upper_band, lower_band
-        except Exception as e:
-            logger.error(f'Failed to calculate Bollinger Bands: {str(e)}')
-            return None, None, None
+    def calculate_sar(self, prices, acceleration=0.02, maximum=0.2):
+        """
+        Berechnet den Parabolic SAR basierend auf den geschlossenen Preisen.
 
-    def calculate_rsi(self, prices, period=14):
-        delta = np.diff(prices)
-        gain = (delta[delta > 0]).mean()
-        loss = (-delta[delta < 0]).mean()
+        :param prices: geschlossene Preise
+        :param acceleration: Beschleunigungsfaktor
+        :param maximum: maximaler Beschleunigungsfaktor
+        :return: Liste der SAR-Werte
+        """
+        sar = [prices[0]]  # Initialisiere den ersten SAR-Wert
+        ep = prices[0]  # Extrempreis
+        trend = 1  # 1 für Aufwärtstrend, -1 für Abwärtstrend
+
+        for i in range(1, len(prices)):
+            sar.append(sar[i - 1] + acceleration * (ep - sar[i - 1]))
+
+        if trend == 1:  # Aufwärtstrend
+            if prices[i] < sar[i]:  # Trendwechsel
+                trend = -1
+                sar[i] = ep  # Setze SAR auf den Extrempreis
+                ep = prices[i]  # Setze Extrempreis auf den aktuellen Preis
+                acceleration = 0.02  # Zurücksetzen des Beschleunigungsfaktors
+            else:
+                if prices[i] > ep:
+                    ep = prices[i]  # Aktualisiere Extrempreis
+                    acceleration = min(acceleration + 0.02, maximum)  # Erhöhe den Beschleunigungsfaktor
+        else:  # Abwärtstrend
+            if prices[i] > sar[i]:  # Trendwechsel
+                trend = 1
+                sar[i] = ep  # Setze SAR auf den Extrempreis
+                ep = prices[i]  # Setze Extrempreis auf den aktuellen Preis
+                acceleration = 0.02  # Zurücksetzen des Beschleunigungsfaktors
+            else:
+                if prices[i] < ep:
+                    ep = prices[i]  # Aktualisiere Extrempreis
+                    acceleration = min(acceleration + 0.02, maximum)  # Erhöhe den Beschleunigungsfaktor
+        
+        return sar
+
+    def calculate_rsi(self, prices, period=6):
+        """
+        Berechnet den Relative Strength Index (RSI) basierend auf den geschlossenen Preisen.
+
+        :param prices: geschlossene Preise
+        :param period: Zeitraum für die RSI Berechnung
+        :return rsi: RSI Wert
+        """
+        if len(prices) < period:
+            logger.error('Not enough prices available for RSI calculation.')
+            return None
+
+        delta = np.diff(prices[-period:])
+        gain = (delta[delta > 0]).mean() if np.any(delta > 0) else 0
+        loss = (-delta[delta < 0]).mean() if np.any(delta < 0) else 0
         rs = gain / loss if loss != 0 else 0
         rsi = 100 - (100 / (1 + rs))
-        logger.info(f'Calculated RSI: {rsi}')
+        logger.info(f'Calculated RSI: {rsi} for period: {period}')
         return rsi
 
-    def fourier_analysis(self, prices):
-        try:
-            n = len(prices)
-            prices_fft = fft(prices)
-            frequencies = np.fft.fftfreq(n)
-            magnitude = np.abs(prices_fft)
-            logger.info(f'Performed Fourier analysis for prices')
-            return frequencies, magnitude
-        except Exception as e:
-            logger.error(f'Failed to perform Fourier analysis: {str(e)}')
-            return None, None
+    def execute_order(self, order_type, amount):
+        """
+        Führt den Kauf oder Verkauf aus.
 
-    def ornstein_uhlenbeck(self, prices, theta=0.1, mu=None, sigma=0.2):
+        :param order_type: 'buy' oder 'sell'
+        :param amount: Anzahl der Coins
+        :return order: Bestätigung der Order
+        """
         try:
-            if mu is None:
-                mu = np.mean(prices)
-            drift = theta * (mu - prices[-1])
-            shock = sigma * np.random.normal()
-            logger.info(f'Calculated Ornstein-Uhlenbeck model for prices with theta {theta}, mu {mu}, and sigma {sigma}')
-            return prices[-1] + drift + shock
+            if order_type == 'buy':
+                order = self.binance.place_market_buy_order(self.symbol, amount)
+                return order
+            elif order_type == 'sell':
+                order = self.binance.place_market_sell_order(self.symbol, amount)
+                logger.info(f'Executed {order_type} order: {order}')
+                return order
         except Exception as e:
-            logger.error(f'Failed to calculate Orn stein-Uhlenbeck model: {str(e)}')
+            logger.error(f"Failed to execute {order_type} order: {str(e)}")
             return None
+    
+    def check_buy_signal(self, price, sar, macd_crossover, rsi):
+        """
+        Kaufsignal basierend auf den Indikatoren.
 
-    def buy(self, amount):
-        try:
-            order = self.binance.create_market_buy_order(self.symbol, amount)
-            logger.info(f'Executed buy order: {order}')
-            return order
-        except Exception as e:
-            logger.error(f'Failed to execute buy order: {str(e)}')
-            return None
+        :param price: aktuelle Kurs
+        :param sar: SAR-Wert
+        :param macd: MACD-Wert
+        :param macd_signal: MACD-Signal-Wert
+        :param rsi: RSI-Wert
+        :return: True, wenn Kaufsignal
+        """
+        return sar < price and macd_crossover == 'bullish' and rsi <= self.rsi_buy_upper_bound and rsi >= self.rsi_buy_lower_bound
 
-    def sell(self, amount):
-        try:
-            order = self.binance.create_market_sell_order(self.symbol, amount)
-            logger.info(f'Executed sell order: {order}')
-            return order
-        except Exception as e:
-            logger.error(f'Failed to execute sell order: {str(e)}')
-            return None
+    def check_sell_signal(self, price, sar, macd_crossover, rsi):
+        """
+        Verkaufsignal basierend auf den Indikatoren.
+        
+        :param price: aktuelle Kurs
+        :param sar: SAR-Wert
+        :param macd: MACD-Wert
+        :param macd_signal: MACD-Signal-Wert
+        :param rsi: RSI-Wert
+        :return: True, wenn Verkaufsignal
+        """
+        return sar > price and macd_crossover == 'baerish' and rsi >= self.rsi_sell_lower_bound and rsi <= self.rsi_sell_upper_bound
 
     def trading_strategy(self):
-        try:
-            prices = self.fetch_data()
+        """
+        Die Tradingstrategie, die auf den Indikatoren basiert.
+        """
+        prices = self.fetch_data()
+        if not self.validate_data(prices):
+            return
+        
+        sar = self.calculate_sar(prices)
+        macd_data = self.fetch_indicator('macd')
+        rsi = self.calculate_rsi(prices)
+
+        if macd_data is not None:
+            macd, macd_signal = macd_data
+
+            if self.previous_macd is not None:
+                macd_crossover = None
+                if self.previous_macd < macd and macd_signal < macd: # Bullish Crossover
+                    macd_crossover = 'bullish'
+                elif self.previous_macd > macd and macd_signal > macd: # Bearish Crossover
+                    macd_crossover = 'bearish'
             
-            if not self.validate_data(prices):
-                return  # Beende die Funktion, wenn die Daten ungültig sind
-
-            current_price = prices[-1]
-            rsi = self.calculate_rsi(prices)
+            trade_amount = self.calculate_trade_amount() # Berechnet Handelsbetrag
             
-            # Strategie auswählen
-            strategy = self.select_strategy(prices)
-            logger.info(f'Selected strategy: {strategy}')
-
-            # ATR für dynamisches Stop-Loss
-            atr_value = self.calculate_atr(prices)
-
-            if strategy == "trend_following":
-                rolling_mean, upper_band, lower_band = self.calculate_bollinger_bands(prices)
-                sar_value = self.fetch_sar()
-                imbalance = self.analyze_order_book()
-
-                # Kauf-/Verkaufssignale für Trendfolge
-                if current_price < lower_band and current_price > sar_value and imbalance > 0 and rsi < 30:
-                    logger.info(f'Generated buy signal for trend following strategy')
-                    self.buy(amount=1)  # Beispielbetrag
-                    stop_loss = self.set_stop_loss(current_price, atr_value, direction="long")
-
-                elif (current_price < lower_band + 0.01) and (current_price > sar_value) and (imbalance > 0) and (rsi < 30):
-                    logger.info(f'Generated buy signal for trend following strategy')
-                    self.buy(amount=1)  # Beispielbetrag
-                    stop_loss = self.set_stop_loss(current_price, atr_value, direction="long")
-
-                elif current_price > upper_band and current_price < sar_value and imbalance < 0 and rsi > 70:
-                    logger.info(f'Generated sell signal for trend following strategy')
-                    self.sell(amount=1)  # Beispielbetrag
-                    stop_loss = self.set_stop_loss(current_price, atr_value, direction="short")
-
-            elif strategy == "mean_reversion":
-                frequencies, magnitude = self.fourier_analysis(prices)
-                ou_prediction = self.ornstein_uhlenbeck(prices)
-
-                # Kauf-/Verkaufssignale für Mean Reversion
-                if ou_prediction > current_price and rsi < 30:
-                    logger.info(f'Generated buy signal for mean reversion strategy')
-                    self.buy(amount=1)  # Beispielbetrag
-                    stop_loss = self.set_stop_loss(current_price, atr_value, direction="long")
-
-                elif ou_prediction < current_price and rsi > 70:
-                    logger.info(f'Generated sell signal for mean reversion strategy')
-                    self.sell(amount=1)  # Beispielbetrag
-                    stop_loss = self.set_stop_loss(current_price, atr_value, direction="short")
-        except Exception as e:
-            logger.error(f'Failed to execute trading strategy: {str(e)}')
-
-    def print_dashboard(self):
-        logger.info("---- Dashboard ----")
+            # Kaufsignal
+            if self.check_buy_signal(prices[-1], sar, macd_crossover, rsi):
+                if self.last_sar_signal != 'buy':
+                    self.last_sar_signal = 'buy'
+                    self.execute_order('buy', trade_amount)
+            
+            # Verkaufsignal
+            elif self.check_sell_signal(prices[-1], sar, macd_crossover, rsi):
+                if self.last_sar_signal != 'sell':
+                    self.last_sar_signal = 'sell'
+                    self.execute_order('sell', trade_amount)
 
 # Hauptschleife
 if __name__ == "__main__":
@@ -188,5 +272,4 @@ if __name__ == "__main__":
 
     while True:
         bot.trading_strategy()
-        bot.print_dashboard()
-        time.sleep(60)  # Wartezeit zwischen den Handelszyklen
+        time.sleep(300)  # Wartezeit zwischen den Handelszyklen
